@@ -1,8 +1,10 @@
 from .ryuo import Ryuo
 from .tui import TUI
+from .api import API
 import argparse
 import sys
 import time
+
 
 
 class CLI:
@@ -128,12 +130,11 @@ class CLI:
             return 3
 
     def api_server(self) -> int:
-        self.ryuo = Ryuo()
         print("API server placeholder - not implemented yet")
         try:
-            # simple block so the user can ctrl-c to exit while we implement later
-            while True:
-                time.sleep(1)
+            api = API()
+            api.run()
+            return 0
         except KeyboardInterrupt:
             print("Stopping API placeholder")
             return 0

@@ -1,2 +1,6 @@
 hidapi
 psutil
+textual
+fastapi
+uvicorn
+python-multipart
