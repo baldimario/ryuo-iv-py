@@ -5,4 +5,4 @@ class App():
         self.ryuo = Ryuo()
 
     def run(self):
-        self.ryuo.run()
+        input()

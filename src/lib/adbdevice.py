@@ -54,7 +54,7 @@ class ADBDevice():
             print(f"Error: {e}")
             return [], []
             
-    def upload_file_via_adb(self, local_path, remote_filename=None):
+    def upload_media(self, local_path, remote_filename=None):
         try:
             if not os.path.exists(local_path):
                 print(f"Error: local file not found: {local_path}")
@@ -81,7 +81,34 @@ class ADBDevice():
             print(f"Error: {e}")
             return None
             
-    def delete_video_from_device(self, media_file):
+    def download_media(self, media_file, local_path):
+        # download media from user or preset directory
+        user_files, preset_files = self.get_mp4_files()
+
+        if media_file in user_files:
+            remote_path = f"{self.USER_FILE_PATH}/{media_file}"
+        elif media_file in preset_files:
+            remote_path = f"{self.SYSTEM_FILE_PATH}/{media_file}"
+        else:
+            print("File not found on device.")
+            return False
+        
+        try:
+            cmd = [self.ADB_PATH, "pull", remote_path, local_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            
+            if result.returncode == 0:
+                return True
+            else:
+                print(result.stderr)
+                return False
+        except subprocess.TimeoutExpired:
+            print("Timeout executing adb command")
+            return None
+        except Exception as e:
+            raise e
+        
+    def delete_media(self, media_file):
         # Only user files can be deleted, preset files are read-only
         user_files, preset_files = self.get_mp4_files()
         
