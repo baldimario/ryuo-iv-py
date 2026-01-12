@@ -1,11 +1,11 @@
 #from lib.app import App
-from lib.tui import TUI
-#from lib.cli import CLI
+#from lib.tui import TUI
+from lib.cli import CLI
 #from lib.api import API
 
 class Main():
     def __init__(self):
-        self.app = TUI()
+        self.app = CLI()
 
     def run(self):
         self.app.run()
