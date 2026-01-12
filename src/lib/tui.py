@@ -1,4 +1,4 @@
-from .ryuo import Ryuo
+from .api_client import APIClient
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Static, ListView, ListItem, Input, Button
 from textual.containers import HorizontalGroup, VerticalScroll, VerticalGroup
@@ -11,9 +11,17 @@ class TUI(App):
     
     def __init__(self):
         super().__init__()
-        self.ryuo = Ryuo()
-        self.brightness = int(self.ryuo.config.settings.get("brightness", 200))
-        self.media_file = str(self.ryuo.config.settings.get("media", ""))
+        # create API client which will start the API server if missing
+        try:
+            self.client = APIClient()
+            cfg = self.client.get_config()
+            self.brightness = int(cfg.get("brightness", 200))
+            self.media_file = str(cfg.get("media", ""))
+        except Exception:
+            # fallback to safe defaults if API not available
+            self.client = APIClient(start_if_missing=False)
+            self.brightness = 200
+            self.media_file = ""
         self._message = ""
         # file picker state
         self._picker_widget = None
@@ -59,7 +67,10 @@ class TUI(App):
         if action_id == "set_brightness_btn":
             # apply current brightness value to device
             brightness = int(self.brightness)
-            self.ryuo.set_brightness(brightness)
+            try:
+                self.client.set_brightness(brightness)
+            except Exception:
+                pass
             self.update_status()
             try:
                 self.ryuo.config.save_config()
@@ -85,11 +96,10 @@ class TUI(App):
                 item = media_list.children[idx]
                 media = getattr(item, "media", None)
                 if media:
-                    self.ryuo.set_media(media)
-                    self.media_file = media
-                    self.update_status()
                     try:
-                        self.ryuo.config.save_config()
+                        self.client.set_media_and_brightness(media, self.brightness)
+                        self.media_file = media
+                        self.update_status()
                     except Exception:
                         pass
             except Exception:
@@ -153,13 +163,12 @@ class TUI(App):
                     if hasattr(node, "media"):
                         media = getattr(node, "media", None)
                         if media:
-                            self.ryuo.set_media(media)
-                            self.media_file = media
                             try:
-                                self.ryuo.config.save_config()
+                                self.client.set_media_and_brightness(media, self.brightness)
+                                self.media_file = media
+                                self.update_status()
                             except Exception:
                                 pass
-                            self.update_status()
                     elif hasattr(node, "path"):
                         path = getattr(node, "path", None)
                         isdir = getattr(node, "isdir", False)
@@ -223,12 +232,8 @@ class TUI(App):
                 media = getattr(node, "media", None)
                 if media:
                     try:
-                        self.ryuo.set_media(media)
+                        self.client.set_media_and_brightness(media, self.brightness)
                         self.media_file = media
-                        try:
-                            self.ryuo.config.save_config()
-                        except Exception:
-                            pass
                         self.update_status()
                     except Exception:
                         pass
@@ -283,7 +288,6 @@ class TUI(App):
         try:
             lv = self.query_one("#file_picker_list", ListView)
             lv.clear()
-            entries = []
             try:
                 for name in sorted(os.listdir(self._picker_dir)):
                     full = os.path.join(self._picker_dir, name)
@@ -360,7 +364,15 @@ class TUI(App):
 
     def upload_path(self, path: str) -> None:
         try:
-            self.ryuo.upload(path)
+                try:
+                    self.client.upload(path)
+                except Exception:
+                    # attempt to start API and retry once
+                    try:
+                        self.client.ensure_running()
+                        self.client.upload(path)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -378,7 +390,7 @@ class TUI(App):
             return
         
         try:
-            self.ryuo.delete(media)
+            self.client.delete(media)
         except Exception:
             pass
 
@@ -388,13 +400,13 @@ class TUI(App):
         if media_files:
             new_media = media_files[0]
             try:
-                self.ryuo.set_media(new_media)
+                self.client.set_media_and_brightness(new_media, self.brightness)
             except Exception:
                 pass
             self.media_file = new_media
         else:
             try:
-                self.ryuo.set_media("")
+                self.client.set_media_and_brightness("", self.brightness)
             except Exception:
                 pass
             self.media_file = ""
@@ -414,7 +426,10 @@ class TUI(App):
     def refresh_media_list(self):
         media_list = self.query_one("#media_list", ListView)
         media_list.clear()
-        media_files = self.ryuo.get_media_files()
+        try:
+            media_files = self.client.get_media_files()
+        except Exception:
+            media_files = []
         for media in media_files:
             li = ListItem(Static(media))
             # attach media filename for easy retrieval when selected
@@ -465,9 +480,8 @@ class TUI(App):
         elif key in ("s", "S"):
             # apply current brightness
             try:
-                self.ryuo.set_brightness(int(self.brightness))
                 try:
-                    self.ryuo.config.save_config()
+                    self.client.set_brightness(int(self.brightness))
                 except Exception:
                     pass
                 self.update_status()
@@ -499,12 +513,11 @@ class TUI(App):
                 item = media_list.children[idx]
                 media = getattr(item, "media", None)
                 if media:
-                    self.ryuo.set_media(media)
-                    self.media_file = media
                     try:
-                        self.ryuo.config.save_config()
+                        self.client.set_media_and_brightness(media, self.brightness)
+                        self.media_file = media
+                        self.update_status()
                     except Exception:
                         pass
-                    self.update_status()
             except Exception:
                 pass
