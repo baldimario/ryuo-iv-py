@@ -108,6 +108,35 @@ class CLI:
             print(f"Failed to set media/brightness: {e}")
             return 3
 
+    def download_media(self, media: str, out_path: Optional[str] = None) -> int:
+        if not media:
+            print("No media specified for download")
+            return 2
+        try:
+            dest = self.client.download(media, dest_path=out_path)
+            print(f"Downloaded: {dest}")
+            return 0
+        except Exception as e:
+            print(f"Download failed: {e}")
+            return 3
+
+    def set_brightness(self, brightness: int) -> int:
+        try:
+            brightness = int(brightness)
+        except Exception:
+            print("Brightness must be an integer (0-255)")
+            return 2
+        if brightness < 0 or brightness > 255:
+            print("Brightness must be between 0 and 255")
+            return 2
+        try:
+            self.client.set_brightness(brightness)
+            print(f"Set brightness: {brightness}")
+            return 0
+        except Exception as e:
+            print(f"Failed to set brightness: {e}")
+            return 3
+
     def loop_keepalive(self) -> int:
         print("Entering keepalive loop. Ctrl-C to exit.")
         try:
@@ -160,11 +189,13 @@ class CLI:
         parser.add_argument("-u", "--upload", metavar="LOCAL_PATH", help="Upload local .mp4 file to device")
         parser.add_argument("-l", "--list", action="store_true", help="List media on device")
         parser.add_argument("-i", "--info", action="store_true", help="Show current configuration info")
-        parser.add_argument("-s", "--set", nargs=2, metavar=("MEDIA", "BRIGHTNESS"), help="Set media on device and brightness (0-255)")
+        parser.add_argument("-s", "--set", nargs='+', metavar=("MEDIA", "BRIGHTNESS"), help="Set media on device and optional brightness (0-255)")
         parser.add_argument("-L", "--loop", action="store_true", help="Run an infinite keepalive loop")
+        parser.add_argument("-b", "--brightness", type=int, metavar="BRIGHTNESS", help="Set brightness only (0-255)")
         parser.add_argument("-d", "--daemon", action="store_true", help="Start daemon (API server, blocking)")
         parser.add_argument("-t", "--tui", action="store_true", help="Start the textual TUI")
         parser.add_argument("-D", "--delete", metavar="MEDIA", help="Delete media from device")
+        parser.add_argument("-g", "--download", nargs='+', metavar=("MEDIA", "OUT_PATH"), help="Download media from device; optional OUT_PATH to save to")
 
         args = parser.parse_args(argv)
 
@@ -180,8 +211,19 @@ class CLI:
             return cli.upload(args.upload)
 
         if args.set:
-            media, brightness = args.set
-            return cli.set_media_and_brightness(media, brightness)
+            media = args.set[0]
+            brightness = args.set[1] if len(args.set) > 1 else None
+            if brightness is None:
+                # apply media using existing/config brightness
+                try:
+                    cli.client.set_media(media)
+                    print(f"Set media: {media}")
+                    return 0
+                except Exception as e:
+                    print(f"Failed to set media: {e}")
+                    return 3
+            else:
+                return cli.set_media_and_brightness(media, brightness)
 
         if args.loop:
             return cli.loop_keepalive()
@@ -191,6 +233,19 @@ class CLI:
 
         if args.delete:
             return cli.delete_media(args.delete)
+
+        if args.brightness is not None:
+            return cli.set_brightness(args.brightness)
+
+        if args.download:
+            # args.download may be ['media.mp4'] or ['media.mp4', 'out/path.mp4']
+            if isinstance(args.download, list):
+                media = args.download[0]
+                out = args.download[1] if len(args.download) > 1 else None
+            else:
+                media = args.download
+                out = None
+            return cli.download_media(media, out)
 
         if args.tui:
             try:

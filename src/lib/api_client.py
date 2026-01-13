@@ -41,6 +41,9 @@ class APIClient:
             time.sleep(0.1)
         raise RuntimeError(f"API did not become available on {self.host}:{self.port} within {timeout}s")
 
+    def is_running(self) -> bool:
+        return self._port_open()
+
     def get_media_files(self):
         r = requests.get(f"{self.base}/list")
         r.raise_for_status()
@@ -58,6 +61,27 @@ class APIClient:
             r.raise_for_status()
             return r.json()
 
+    def download(self, media: str, dest_path: str | None = None, timeout: float = 30.0) -> str:
+        # ensure API running
+        try:
+            self.ensure_running()
+        except Exception:
+            pass
+
+        url = f"{self.base}/download/{media}"
+        r = requests.get(url, stream=True, timeout=timeout)
+        r.raise_for_status()
+
+        if dest_path is None:
+            dest_path = os.path.join(os.getcwd(), os.path.basename(media))
+
+        with open(dest_path, "wb") as fh:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    fh.write(chunk)
+
+        return dest_path
+
     def delete(self, media: str):
         r = requests.delete(f"{self.base}/delete/{media}")
         r.raise_for_status()
@@ -74,9 +98,15 @@ class APIClient:
         return self.set_media_and_brightness(media, brightness)
 
     def set_brightness(self, brightness: int):
-        cfg = self.get_config()
-        media = cfg.get("media", "") or ""
-        if not media:
-            # set brightness only by sending empty media
-            return self.set_media_and_brightness("", brightness)
-        return self.set_media_and_brightness(media, brightness)
+        # prefer direct brightness endpoint
+        try:
+            r = requests.post(f"{self.base}/brightness/{int(brightness)}")
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            # fallback to set endpoint behavior
+            cfg = self.get_config()
+            media = cfg.get("media", "") or ""
+            if not media:
+                return self.set_media_and_brightness("", brightness)
+            return self.set_media_and_brightness(media, brightness)

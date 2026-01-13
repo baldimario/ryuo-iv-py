@@ -1,10 +1,11 @@
 from .ryuo import Ryuo
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse, FileResponse
 import uvicorn
 import shutil
 import os
 from typing import Any
+import tempfile
 
 
 def make_app(ryuo: Ryuo) -> FastAPI:
@@ -89,6 +90,57 @@ def make_app(ryuo: Ryuo) -> FastAPI:
             except Exception:
                 pass
             return JSONResponse(content={"media": media, "brightness": brightness})
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/brightness/{brightness}")
+    def set_brightness_only(brightness: int):
+        try:
+            try:
+                brightness = int(brightness)
+            except Exception:
+                raise HTTPException(status_code=400, detail="Brightness must be an integer")
+            if brightness < 0 or brightness > 255:
+                raise HTTPException(status_code=400, detail="Brightness must be between 0 and 255")
+
+            # apply brightness to current media only
+            ryuo.set_brightness(brightness)
+            try:
+                ryuo.config.save_config()
+            except Exception:
+                pass
+            return JSONResponse(content={"brightness": brightness})
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/download/{media}")
+    def download_media(media: str, background_tasks: BackgroundTasks):
+        try:
+            media_files = ryuo.get_media_files()
+            if media not in media_files:
+                raise HTTPException(status_code=404, detail="Media not found")
+
+            tmp_dir = os.path.join(os.getcwd(), "tmp_downloads")
+            os.makedirs(tmp_dir, exist_ok=True)
+            dest = os.path.join(tmp_dir, os.path.basename(media))
+
+            # perform device download to temporary file
+            ryuo.download(media, dest)
+
+            def _safe_remove(path: str) -> None:
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except Exception:
+                    pass
+
+            background_tasks.add_task(_safe_remove, dest)
+
+            return FileResponse(dest, media_type="video/mp4", filename=os.path.basename(media))
         except HTTPException:
             raise
         except Exception as e:
