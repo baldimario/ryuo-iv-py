@@ -1,0 +1,14 @@
+[Unit]
+Description=Ryuo control daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ryuoctl/app
+ExecStart=/usr/local/bin/ryuoctl -d -p __PORT__
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

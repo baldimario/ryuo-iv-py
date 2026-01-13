@@ -191,6 +191,7 @@ class CLI:
         parser.add_argument("-i", "--info", action="store_true", help="Show current configuration info")
         parser.add_argument("-s", "--set", nargs='+', metavar=("MEDIA", "BRIGHTNESS"), help="Set media on device and optional brightness (0-255)")
         parser.add_argument("-L", "--loop", action="store_true", help="Run an infinite keepalive loop")
+        parser.add_argument("-p", "--port", type=int, default=55667, help="API port to use (default: 55667)")
         parser.add_argument("-b", "--brightness", type=int, metavar="BRIGHTNESS", help="Set brightness only (0-255)")
         parser.add_argument("-d", "--daemon", action="store_true", help="Start daemon (API server, blocking)")
         parser.add_argument("-t", "--tui", action="store_true", help="Start the textual TUI")
@@ -199,7 +200,8 @@ class CLI:
 
         args = parser.parse_args(argv)
 
-        cli = CLI()
+        # construct CLI with requested port
+        cli = CLI(port=args.port)
 
         if args.list:
             return cli.list_media()
