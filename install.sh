@@ -41,6 +41,20 @@ exec ${VENV_DIR}/bin/python ${APP_DIR}/src/main.py "\$@"
 EOF
 chmod +x ${BIN}
 
+if [ -d "$HOME/.local/share/applications" ]; then
+  cat > "$HOME/.local/share/applications/ryuoctl-gui.desktop" <<EOD
+[Desktop Entry]
+Name=Ryuo IV Controller GUI
+Comment=Control Ryuo IV device via GUI
+Exec=${BIN} --gui
+Icon=ryuo
+Terminal=false
+Type=Application
+Categories=Utility;Development;
+EOD
+  chmod 644 "$HOME/.local/share/applications/ryuoctl-gui.desktop"
+fi
+
 
 echo "Installing systemd unit"
 sed "s|__PORT__|${PORT}|g" ${APP_DIR}/packaging/ryuoctld.service > ${SERVICE}
