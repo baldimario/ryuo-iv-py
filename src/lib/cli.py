@@ -6,6 +6,7 @@ import argparse
 import sys
 import time
 from typing import List, Optional
+from .gui import GUI
 
 
 class CLI:
@@ -182,6 +183,16 @@ class CLI:
             print(f"API server error: {e}")
             return 3
 
+    def run_gui(self) -> None:
+        from PyQt6.QtWidgets import QApplication
+        from lib.gui import GUI
+
+        app = QApplication(sys.argv)
+        gui = GUI()
+        gui.run()
+        sys.exit(app.exec())
+
+            
     def run(self, argv: Optional[List[str]] = None) -> int:
         argv = argv if argv is not None else sys.argv[1:]
         parser = argparse.ArgumentParser(prog="ryuo-cli", description="Ryuo device automation CLI")
@@ -196,7 +207,8 @@ class CLI:
         parser.add_argument("-d", "--daemon", action="store_true", help="Start daemon (API server, blocking)")
         parser.add_argument("-t", "--tui", action="store_true", help="Start the textual TUI")
         parser.add_argument("-D", "--delete", metavar="MEDIA", help="Delete media from device")
-        parser.add_argument("-g", "--download", nargs='+', metavar=("MEDIA", "OUT_PATH"), help="Download media from device; optional OUT_PATH to save to")
+        parser.add_argument("-G", "--download", nargs='+', metavar=("MEDIA", "OUT_PATH"), help="Download media from device; optional OUT_PATH to save to")
+        parser.add_argument("-g", "--gui", action="store_true", help="Start GUI application")
 
         args = parser.parse_args(argv)
 
@@ -257,6 +269,9 @@ class CLI:
             except Exception as e:
                 print(f"TUI failed: {e}")
                 return 3
+            
+        if args.gui:
+            cli.run_gui()
 
         parser.print_help()
         return 0
