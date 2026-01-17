@@ -4,11 +4,44 @@ from PyQt6.QtWidgets import (
     QListWidget, QPushButton, QLabel, QSlider, QGroupBox,
     QFileDialog, QMessageBox, QStatusBar, QListWidgetItem, QGridLayout
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt6.QtGui import QIcon, QFont
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtMultimediaWidgets import QVideoWidget
 import os
 import sys
 from typing import Optional
+
+
+class CacheWorkerThread(QThread):
+    progress = pyqtSignal(str, str)
+    finished_all = pyqtSignal()
+
+    def __init__(self, client, media_files, cache_dir):
+        super().__init__()
+        self.client = client
+        self.media_files = media_files
+        self.cache_dir = cache_dir
+        self._stop_requested = False
+
+    def stop(self):
+        self._stop_requested = True
+
+    def run(self):
+        os.makedirs(self.cache_dir, exist_ok=True)
+        for media in self.media_files:
+            if self._stop_requested:
+                break
+            cache_path = os.path.join(self.cache_dir, media)
+            if os.path.exists(cache_path):
+                self.progress.emit(media, "cached")
+                continue
+            try:
+                self.client.download(media, cache_path)
+                self.progress.emit(media, "downloaded")
+            except Exception as e:
+                self.progress.emit(media, f"error: {e}")
+        self.finished_all.emit()
 
 
 class WorkerThread(QThread):
@@ -36,22 +69,26 @@ class GUI(QMainWindow):
         self.current_media = ""
         self.current_brightness = 200
         self.worker: Optional[WorkerThread] = None
+        self.cache_worker: Optional[CacheWorkerThread] = None
+        self.cache_dir = os.path.join(os.getcwd(), "cache")
 
         self.init_ui()
         self.load_initial_config()
 
     def init_ui(self):
         self.setWindowTitle("Ryuo IV Controller")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1200, 700)
 
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout(main_widget)
+        main_layout = QHBoxLayout(main_widget)
+
+        left_panel = QVBoxLayout()
 
         title_label = QLabel("Ryuo IV Controller")
         title_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
+        left_panel.addWidget(title_label)
 
         info_group = QGroupBox("Device Info")
         info_layout = QGridLayout()
@@ -64,7 +101,7 @@ class GUI(QMainWindow):
         info_layout.addWidget(self.info_keepalive_label, 1, 0)
         info_layout.addWidget(self.info_system_data_label, 1, 1)
         info_group.setLayout(info_layout)
-        main_layout.addWidget(info_group)
+        left_panel.addWidget(info_group)
 
         brightness_group = QGroupBox("Brightness Control")
         brightness_layout = QVBoxLayout()
@@ -85,13 +122,14 @@ class GUI(QMainWindow):
         brightness_layout.addWidget(self.brightness_slider)
         brightness_layout.addLayout(btn_layout)
         brightness_group.setLayout(brightness_layout)
-        main_layout.addWidget(brightness_group)
+        left_panel.addWidget(brightness_group)
 
         media_group = QGroupBox("Media Files")
         media_layout = QVBoxLayout()
 
         self.media_list = QListWidget()
         self.media_list.itemDoubleClicked.connect(self.on_media_double_clicked)
+        self.media_list.currentItemChanged.connect(self.on_media_selection_changed)
         media_layout.addWidget(self.media_list)
 
         media_btn_layout = QHBoxLayout()
@@ -114,7 +152,44 @@ class GUI(QMainWindow):
 
         media_layout.addLayout(media_btn_layout)
         media_group.setLayout(media_layout)
-        main_layout.addWidget(media_group)
+        left_panel.addWidget(media_group)
+
+        main_layout.addLayout(left_panel, 1)
+
+        right_panel = QVBoxLayout()
+        preview_group = QGroupBox("Video Preview")
+        preview_layout = QVBoxLayout()
+
+        self.video_widget = QVideoWidget()
+        self.video_widget.setMinimumSize(400, 300)
+        preview_layout.addWidget(self.video_widget)
+
+        self.media_player = QMediaPlayer()
+        self.audio_output = QAudioOutput()
+        self.media_player.setAudioOutput(self.audio_output)
+        self.media_player.setVideoOutput(self.video_widget)
+
+        video_control_layout = QHBoxLayout()
+        self.play_btn = QPushButton("Play")
+        self.play_btn.clicked.connect(self.toggle_playback)
+        self.pause_btn = QPushButton("Pause")
+        self.pause_btn.clicked.connect(self.pause_playback)
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.clicked.connect(self.stop_playback)
+
+        video_control_layout.addWidget(self.play_btn)
+        video_control_layout.addWidget(self.pause_btn)
+        video_control_layout.addWidget(self.stop_btn)
+        preview_layout.addLayout(video_control_layout)
+
+        self.preview_status_label = QLabel("No preview loaded")
+        self.preview_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_layout.addWidget(self.preview_status_label)
+
+        preview_group.setLayout(preview_layout)
+        right_panel.addWidget(preview_group)
+
+        main_layout.addLayout(right_panel, 1)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -139,6 +214,9 @@ class GUI(QMainWindow):
 
             self.refresh_media_list()
             self.show_message("Connected to device")
+
+            if self.current_media:
+                self.load_preview(self.current_media)
         else:
             self.show_error(f"Failed to load config: {result}")
             self.info_media_label.setText("Media: Error")
@@ -162,8 +240,65 @@ class GUI(QMainWindow):
                     item.setForeground(Qt.GlobalColor.darkGreen)
                 self.media_list.addItem(item)
             self.show_message(f"Loaded {len(media_files)} media file(s)")
+
+            self.start_cache_worker(media_files)
         else:
             self.show_error(f"Failed to load media list: {result}")
+
+    def start_cache_worker(self, media_files):
+        if self.cache_worker and self.cache_worker.isRunning():
+            return
+
+        self.cache_worker = CacheWorkerThread(self.client, media_files, self.cache_dir)
+        self.cache_worker.progress.connect(self.on_cache_progress)
+        self.cache_worker.finished_all.connect(self.on_cache_finished)
+        self.cache_worker.start()
+
+    def on_cache_progress(self, media: str, status: str):
+        if status == "downloaded":
+            self.show_message(f"Cached: {media}")
+
+    def on_cache_finished(self):
+        self.show_message("All media cached")
+
+    def on_media_selection_changed(self, current: QListWidgetItem, previous: QListWidgetItem):
+        if not current:
+            return
+        media_name = current.text().lstrip("* ").strip()
+        self.load_preview(media_name)
+
+    def load_preview(self, media_name: str):
+        cache_path = os.path.join(self.cache_dir, media_name)
+
+        if os.path.exists(cache_path):
+            self.media_player.setSource(QUrl.fromLocalFile(cache_path))
+            self.preview_status_label.setText(f"Preview: {media_name}")
+            self.media_player.play()
+        else:
+            self.preview_status_label.setText(f"Downloading preview: {media_name}...")
+            self.run_async(self.client.download, self.on_preview_downloaded, media_name, cache_path)
+
+    def on_preview_downloaded(self, success: bool, result):
+        if success:
+            cache_path = result
+            media_name = os.path.basename(cache_path)
+            self.media_player.setSource(QUrl.fromLocalFile(cache_path))
+            self.preview_status_label.setText(f"Preview: {media_name}")
+            self.media_player.play()
+        else:
+            self.preview_status_label.setText("Failed to load preview")
+
+    def toggle_playback(self):
+        if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self.media_player.pause()
+        else:
+            self.media_player.play()
+
+    def pause_playback(self):
+        self.media_player.pause()
+
+    def stop_playback(self):
+        self.media_player.stop()
 
     def upload_media(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -297,6 +432,8 @@ class GUI(QMainWindow):
         )
 
     def run_async(self, func, callback, *args, **kwargs):
+        if self.worker and self.worker.isRunning():
+            self.worker.wait()
         self.worker = WorkerThread(func, *args, **kwargs)
         self.worker.finished.connect(lambda success, result: callback(success, result))
         self.worker.start()
@@ -307,6 +444,23 @@ class GUI(QMainWindow):
     def show_error(self, error_message: str):
         self.status_bar.showMessage(f"Error: {error_message}", 10000)
         QMessageBox.critical(self, "Error", error_message)
+
+    def closeEvent(self, a0):
+        self.media_player.stop()
+
+        if self.cache_worker and self.cache_worker.isRunning():
+            self.cache_worker.stop()
+            self.cache_worker.wait(2000)
+            if self.cache_worker.isRunning():
+                self.cache_worker.terminate()
+
+        if self.worker and self.worker.isRunning():
+            self.worker.wait(1000)
+            if self.worker.isRunning():
+                self.worker.terminate()
+
+        if a0:
+            a0.accept()
 
     def run(self):
         self.show()
