@@ -1,9 +1,9 @@
-Ryuo IV Controller — ryuoctl
+Ryuo IV Controller - ryuoctl
 =================================
 
 Small tools to control an Arturia ROG Ryuo IV device from Python: a daemon, a CLI, a Textual TUI, a PyQt6 GUI and an HTTP API that wrap the device driver logic.
 
-![Ryuo](/assets/ryuo.png)
+![Ryuo](/assets/ryuoctl.png)
 
 Features
 --------
@@ -131,6 +131,8 @@ Contributing
 ------------
 - Open issues or PRs for bug fixes and feature requests.
 - Tests and CI are welcomed; keep the API contract stable.
+
+![Ryuo](/assets/ryuo.png)
 
 License
 -------
